@@ -1,0 +1,753 @@
+---
+title: "multilevel"
+author: "Noah Thomas"
+date: "2026-09-21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+load in required libraries
+```{r}
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(readxl)
+library(lmerTest)
+library(ggeffects)
+library(performance)
+```
+
+we read in the data we received below for the merged file
+```{r}
+mergedf = read_excel("2023merged2024.xlsx")
+```
+
+
+in this file, improve upon the models made in makingmodels.rmd utilizing multilevel models. As I did initial exploration, I will not be repeating analysis of those graphs and instead hop right into modeling.
+
+we will return to our first question, "Does the final exam grade relate to engagement in the resources after controlling for initial quant skills assessment and faculty?". We want quantitative score and engagement sum to be our fixed effects. We also want engagement sum to be numerical and prof ID to be a factor. We model these with faculty, which is not fixed.
+```{r}
+mergedf$Engagement.sum = as.numeric(mergedf$Engagement.sum)
+mergedf$Instructor.code = as.factor(mergedf$Instructor.code)
+```
+
+for our first model convert 0's on the exam to NA. 0's could only be obtained if they didn't even take the exam, so it is better if they are not counted
+
+```{r}
+mergedf$ExamFinal.Score_raw[mergedf$ExamFinal.Score_raw == 0] = NA
+```
+
+
+```{r}
+mod1 = lmer(ExamFinal.Score_raw ~ Quantitative.Score + Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(mod1)
+```
+```{r}
+r2(mod1)
+```
+
+Model notes:
+
+intraclass correlation coefficient: 0.218
+About 22% of the variance in final exam scores lies between profs in this model
+
+Engagement - every 1 unit increase engagement is associated with a 0.2867 point increase in final exam score holding quant assessment score constant and accounting for difference in profs
+
+engagement is also not significant here, so we test more models. Below, we test the model for an interaction variable between engagement and quant assessment score
+
+```{r}
+mod2 = lmer(ExamFinal.Score_raw ~ Quantitative.Score + Engagement.sum + Quantitative.Score:Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(mod2)
+```
+Model notes (before applying 0's = NA):
+
+intraclass correlation coefficient: 0.211
+About 21% of the variance in final exam scores lies between profs in this model
+
+Engagement - every 1 unit increase engagement is associated with a 2.71 point increase in final exam score holding quant assessment score constant and accounting for difference in profs
+
+We also see the interaction coefficient is negative - this can be interpreted as the higher one's engagement is, the weaker the effect of the quant assessment score. Thus, with more engagement, students can attain results outside of the prediction of the quant assessment, which is good in that this was confirmed before
+
+Interestingly, we see engagement and the interaction term are pretty significant, just not perfectly significant. this is still good, and a vast improvement over our previous model. We test another model breaking down engagement into its 4 bins (workshops, tutoring, etc.). these 4 bins are what make up engagement sum
+
+we convert these bins into factors so they can be treated as categorical in the model
+```{r}
+mergedf$Engagement.workshops = as.factor(mergedf$Engagement.workshops)
+mergedf$Engagement.faculty = as.factor(mergedf$Engagement.faculty)
+mergedf$Engagement.TLC.studygroups = as.factor(mergedf$Engagement.TLC.studygroups)
+mergedf$Engagement.TLC.tutoring = as.factor(mergedf$Engagement.TLC.tutoring)
+```
+
+Now we make the model
+```{r}
+mod3 = lmer(ExamFinal.Score_raw ~ Quantitative.Score + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + (1 | Instructor.code), data = mergedf)
+summary(mod3)
+```
+intraclass correlation coefficient: 0.232
+About 23% of the variance in final exam scores lies between profs in this model
+
+Engagement.faculty - engagement with faculty often is associated with a 3.82 point increase in final exam score holding quant assessment score and use of other engagement resources constant and accounting for difference in profs
+
+None of the engagements are significant except for engagement with faculty. this would make sense, since every faculty has their own intercept.
+
+now we do a similar model to model 2, where we add an interaction term. we will add an interaction term for each engagement type with quant score. I doubt this model will be practical due to the amount of variables, but it may show important relationships
+
+```{r}
+mod4 = lmer(ExamFinal.Score_raw ~ Quantitative.Score + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.faculty:Quantitative.Score + Engagement.workshops:Quantitative.Score + Engagement.TLC.studygroups:Quantitative.Score + Engagement.TLC.tutoring:Quantitative.Score + (1 | Instructor.code), data = mergedf)
+summary(mod4)
+```
+this model is not much better and is rather obnoxious. it just performs worse than model 3 and much worse than model 4. so we throw this one away
+
+We now create a whole other category of models; instead of using quant score, we are going to use the quant score quartiles. since we have combined the 2023 and 2024 data, the quartiles for the years alone may not be accurate for the two years as a whole. We find the combined quartiles below.
+```{r}
+quantile(mergedf$Quantitative.Score, na.rm = TRUE)
+```
+These quantiles do, in fact, differ from the 2024 file. We put each score into their respective quantile below
+
+```{r}
+mergedf$combinedquartile = ifelse(mergedf$Quantitative.Score >= 10.25, "1st", ifelse(mergedf$Quantitative.Score >= 8.75, "2nd", ifelse(mergedf$Quantitative.Score >= 6.75, "3rd", "4th")))
+```
+
+we also make the new column a factor just in case
+```{r}
+mergedf$combinedquartile = as.factor(mergedf$combinedquartile)
+table(mergedf$combinedquartile)
+```
+With these new quartiles, we make our new models. models 5 - 8 with be very similar in structure to models 1- 4, just with quant score replaced with combined quartiles
+
+Below we make our first model of this kind
+```{r}
+mod5 = lmer(ExamFinal.Score_raw ~ combinedquartile + Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(mod5)
+```
+```{r}
+r2(mod5)
+```
+
+
+intraclass correlation coefficient: 0.1855
+About 19% of the variance in final exam scores lies between profs in this model
+
+Engagement - every 1 unit increase engagement is associated with a 0.33 point increase in final exam score holding quant quartiles constant and accounting for difference in profs
+
+Unsurprisingly, the quartiles are signficant and engagement is not. this reflects the first model. we observe our next model below with an interaction term
+
+```{r}
+mod6 = lmer(ExamFinal.Score_raw ~ combinedquartile + Engagement.sum + combinedquartile:Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(mod6)
+```
+```{r}
+r2(mod6)
+```
+
+the intraclass correlation coefficient is smaller than model 5
+
+we see the interaction for the 4th quartile and engagement is significant, which is good
+
+for the next models, we go back to breaking down engagement sum into its bins. We see if we can find any sort of significance
+
+```{r}
+mod7 = lmer(ExamFinal.Score_raw ~ combinedquartile + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + (1 | Instructor.code), data = mergedf)
+summary(mod7)
+```
+Intraclass correlation coefficient: 0.2054
+about 21% of the variance in final exam scores lies in between profs in this model
+
+similar significance levels seen in model 3. Thus this model does not tell us something particularly useful, other than getting a 1 in faculty or workshops is particularly significant (not sure why 1 is so special... or workshops)
+
+```{r}
+mod8 = lmer(ExamFinal.Score_raw ~ combinedquartile + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.faculty:combinedquartile + Engagement.workshops:combinedquartile + Engagement.TLC.studygroups:combinedquartile + Engagement.TLC.tutoring:combinedquartile + (1 | Instructor.code), data = mergedf)
+summary(mod8)
+```
+```{r}
+r2(mod8)
+```
+
+intraclass correlation coefficient: 0.217
+about 22% of the variance in final exam score is attributed to the profs in this model
+
+While this model is very impractical, we can see one interaction that is significant. We can interpret this as those that were in the 4th quartile and attended study groups often saw about a 12 point increase in final exam grade, controlling for other variables. while this isnt completely accurate, we find that study groups do really help those that scored low on the quant assessment
+
+
+We now go back to our 2nd question: "Does getting a DFW or not relate to engagement in the resources after controlling for initial quant skills assessment and faculty?". We use similar multilevel methods. However, this is logistic regression, so the model itself will be a little different. We make our first model below
+
+```{r}
+logmod1 = glmer(DFW.Counter ~ Quantitative.Score + Engagement.sum + (1 | Instructor.code), data = mergedf, family = binomial)
+summary(logmod1)
+```
+approximate intraclass correlation coefficient: 0.156
+About 16% of the variance in being DFW lies between profs in this model
+
+Engagement looks to be mostly significant and the negative coefficient is good in that the more you engage, the less likely you are to DFW
+
+Our 2nd model uses the interaction term
+```{r}
+logmod2 = glmer(DFW.Counter ~ Quantitative.Score + Engagement.sum + Quantitative.Score:Engagement.sum + (1 | Instructor.code), data = mergedf, family = binomial)
+summary(logmod2)
+```
+approximate intraclass coefficient: 0.15
+About 16% of the variance in being DFW lies between profs in this model
+
+This model does not look to be much better than the previous model. However, we see the interaction term is positive, the opposite of other terms: so higher engagement weakens the effect of the quant assessment in not being DFW. This is good, and related to the interaction term we found in model 2
+
+Now we consider breaking down engagement into the 4 bins
+```{r}
+logmod3 = glmer(DFW.Counter ~ Quantitative.Score + Engagement.faculty + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.workshops + (1 | Instructor.code), data = mergedf, family = binomial)
+summary(logmod3)
+```
+this model is similar to model 3 in terms of significance of variables. it is also similar down to the signs of the coefficients - however, some things just don't make sense: why does tutoring seem to always bring down the grade / make DFW more likely?
+
+model 4 now adds interaction terms
+```{r}
+logmod4 = glmer(DFW.Counter ~ Quantitative.Score + Engagement.faculty + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.workshops + Engagement.faculty:Quantitative.Score + Engagement.TLC.studygroups:Quantitative.Score + Engagement.TLC.tutoring:Quantitative.Score + Engagement.workshops:Quantitative.Score + (1 | Instructor.code), data = mergedf, family = binomial)
+summary(logmod4)
+```
+approximate intraclass correlation coefficient: 0.131
+about 13% of the variance in whether students are DFW are attributed to professors in this model
+
+mostly all variables added are very insignificant. due to this, i dont try to interpret them and just move on. however, it is worthy to note the interaction Quantitative.Score:Engagement.TLC.studygroups2  has the lowest pvalue of the interactions, which makes sense because it was significant in previous models
+
+Now we switch from using quant score to the quant quartiles. We make our first model with this below
+```{r}
+logmod5 = glmer(DFW.Counter ~ combinedquartile + Engagement.sum + (1 | Instructor.code), data = mergedf, family = binomial)
+summary(logmod5)
+```
+approximate intraclass coefficient: 0.1025
+About 10.3% of the variation in DFW is attributed to profs in this model
+
+the intraclass coefficient is getting smaller, which most likely isnt a good sign
+
+strangely the 2nd quartile is just barely insignificant. i am unsure why. the coefficients make sense though
+
+we now make the interaction term with combined quartile
+```{r}
+logmod6 = glmer(DFW.Counter ~ combinedquartile + Engagement.sum + combinedquartile:Engagement.sum + (1 | Instructor.code), data = mergedf, family = binomial)
+summary(logmod6)
+```
+approximate intraclass coeffcient: 0.0924
+About 9.24% of the variance in students getting DFW is attributed to profs in this model
+
+surprisingly, the interaction terms are mostly signficant in this model, maybe the quant quartiles have something to do with this. the 4th quartile interaction has the highest negative effect, which makes sense
+
+now we combined quant quartiles and engagement bins
+
+```{r}
+logmod7 = glmer(DFW.Counter ~ combinedquartile + Engagement.faculty + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.workshops + (1 | Instructor.code), data = mergedf, family = binomial)
+summary(logmod7)
+```
+approximate intraclass coeffcient: 0.0828
+About 8.28% of the variance in students getting DFW is attributed to profs in this model
+
+common patterns with studygroups2 and faculty1 being significant
+
+we make our final model with everything combined below
+
+```{r}
+logmod8 = glmer(DFW.Counter ~ combinedquartile + Engagement.faculty + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.workshops + Engagement.faculty:combinedquartile + Engagement.TLC.studygroups:combinedquartile + Engagement.TLC.tutoring:combinedquartile + Engagement.workshops:combinedquartile + (1 | Instructor.code), data = mergedf, family = binomial)
+summary(logmod8)
+```
+approximate intraclass coeffcient: 0.0897
+About 9.00% of the variance in students getting DFW is attributed to profs in this model
+
+Most of the variables are very insignificant. However, 1 interaction, combinedquartile4th:Engagement.workshops2, is not. With the opposite sign, we can surmise that a good amount of engagement with workshops weakens the effect of the being in the 4th quartile in not being DFW. so workshops can help students who struggled in the quant assessment pass
+
+we graph some of our results below
+```{r}
+ggplot(mergedf, aes(x = combinedquartile, y = ExamFinal.Score_raw, fill = combinedquartile)) + geom_boxplot() + xlab("Quantitative Assessment Quartiles") + ylab("Final Exam Score") + scale_fill_brewer(palette = "Spectral") + theme_minimal() + theme(legend.position = "none",text = element_text(size = 12)) + ggtitle("Final Exam Scores For Each Quantitative\nAssessment Score Quartile") 
+```
+
+we make graphs of our models so our results are more clear to look at. first we grab a set of predictions
+```{r}
+pred <- ggpredict(mod2, terms = c("Engagement.sum", "Quantitative.Score [10.5,8.5,6.5,3.5]"))
+head(pred)
+```
+with these predictions from the model (model 2) we graph them and their error bars
+```{r}
+ggplot(pred, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Score",
+    y = "Predicted Final Exam Score",
+    color = "Quantitative Assessment\nScore of a Student",
+    fill = "Quantitative Assessment\nScore of a Student"
+  ) +
+  theme_minimal() + scale_color_brewer(palette = "Spectral", direction = -1) + scale_fill_brewer(palette = "Spectral", direction = -1) + ggtitle("Engagement is Associated With an Increase\nin Final Exam Score on Average") + theme(text = element_text(size = 12))
+```
+for the graphs below, we follow a similar structure:
+1) predict final exam score / DFW and store it
+2) Graph the predicted values with final exam score / DFW on the y axis and the affect of engagement on the x and the quantitative groups as the legend
+
+```{r}
+pred6 <- ggpredict(mod6, terms = c("Engagement.sum", "combinedquartile"))
+head(pred6)
+```
+
+```{r}
+ggplot(pred6, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Sum",
+    y = "Predicted Final Exam Score",
+    color = "Quant Exam Quartile",
+    fill = "Quant Exam Quartile"
+  ) +
+  theme_minimal() + scale_x_discrete(breaks = c(1, 2, 3))
+```
+```{r}
+pred8 <- ggpredict(mod8, terms = c("Engagement.TLC.studygroups", "combinedquartile"))
+head(pred8)
+```
+
+```{r}
+ggplot(pred8, aes(x = x, y = predicted, color = group)) +
+  geom_point(size = 3) + geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.1,
+    linewidth = 0.5, alpha = 0.6
+  ) + 
+  geom_line(aes(group = group), linewidth = 1) +
+  labs(
+    x = "Engagement with TLC Study Groups",
+    y = "Predicted Final Exam Score",
+    color = "Quantitative\nAssessment Quartile"
+  ) +
+  ggtitle("Students in the 4th Quartile Who Utilize TLC Study Groups\nOften See a Boost in Final Exam Grade on Average") + scale_color_brewer(palette = "Spectral") +  scale_x_discrete(breaks = c(0, 1, 2), labels = c("0" = "None", "1" = "Some", "2" = "Often")) + theme_minimal() + theme(text = element_text(size = 12))
+```
+
+
+```{r}
+pred8X <- ggpredict(mod8, terms = c("Engagement.workshops", "combinedquartile"))
+head(pred8X)
+```
+
+```{r}
+ggplot(pred8X, aes(x = x, y = predicted, color = group)) +
+  geom_point(size = 3) + geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.1,
+    linewidth = 0.5, alpha = 0.5
+  ) + 
+  geom_line(aes(group = group), linewidth = 1) +
+  labs(
+    x = "Engagement with Workshops",
+    y = "Predicted Final Exam Score",
+    color = "Quantitative\nAssessment Quartile",
+    fill = "Quantitative\nAssessment Quartile"
+  ) +  ggtitle("Students Who Utilize TLC Study Groups\nOften See a Boost in Final Exam Grade on Average") + scale_color_brewer(palette = "Spectral") + scale_fill_brewer(palette = "Spectral") + scale_x_discrete(breaks = c(0, 1, 2), labels = c("0" = "None", "1" = "Some", "2" = "Often")) + theme_minimal() + theme(text = element_text(size = 12))
+```
+
+
+```{r}
+logpred6 <- ggpredict(logmod6, terms = c("Engagement.sum", "combinedquartile"))
+head(logpred6)
+```
+```{r}
+ggplot(logpred6, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Score",
+    y = "Predicted Probability of Being DFW",
+    color = "Quantitative\nAssessment Quartile",
+    fill = "Quantitative\nAssessment Quartile"
+  ) +
+  theme_minimal() + scale_fill_brewer(palette = "Spectral") + scale_color_brewer(palette = "Spectral") + theme(text = element_text(size = 12)) + ggtitle("High Engagement is Associated With a Massive Drop in\nProbability of Being DFW for Those in the 4th Quartile")
+```
+```{r}
+logpred8 <- ggpredict(logmod8, terms = c("Engagement.workshops", "combinedquartile"))
+head(pred8)
+```
+```{r}
+ggplot(logpred8, aes(x = x, y = predicted, color = group)) +
+  geom_point(size = 3) + geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.1,
+    linewidth = 0.5, alpha = 0.6
+  ) +
+  geom_line(aes(group = group), linewidth = 1) +
+  labs(
+    x = "How Many Workshops Attended?",
+    y = "Predicted Final Exam Score",
+    color = "Quantitative\nAssessment Quartile"
+  ) +
+  theme_minimal() + scale_color_brewer(palette = "Spectral") + scale_y_continuous(limits = c(0, 0.8), breaks = c(0, 0.2, 0.4, 0.6, 0.8)) + ggtitle("Students in the 4th Quartile Who Attended At\nLeast 1 Workshop Are Much Less Likely to be DFW") +  scale_x_discrete(labels = c("0" = "0", "1" = "1", "2" = "2+")) + theme(text = element_text(size = 12))
+
+```
+
+We now alter our set of models exploring final exam grade. instead of the flat out exam grade, we replace the grade with a zscore. Thus the data will be centered at 0 and maybe we can find some more cool things
+
+```{r}
+mergedf$finalexamzscores = as.numeric(scale(mergedf$ExamFinal.Score_raw))
+```
+
+```{r}
+summary(mergedf$finalexamzscores)
+```
+
+with our transformation, we remake models 1-8 and see if we can find anything new
+
+```{r}
+zmod1 = lmer(finalexamzscores ~ Quantitative.Score + Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(zmod1)
+```
+
+basically the same model. we don't give any extra explanation here
+
+```{r}
+zmod2 = lmer(finalexamzscores ~ Quantitative.Score + Engagement.sum + Quantitative.Score:Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(zmod2)
+```
+
+engagement interpretation: a one unit increase in engagement is associated with a 0.15 st dev. increase in final exam score on average holding quantitative score constant and accounting for difference in profs
+
+So an engagement of 7/8 helps obtain a grade 1 st. dev. higher
+```{r}
+sd(mergedf$ExamFinal.Score_raw, na.rm = TRUE)
+```
+this is a 16 point increase which is huge
+
+```{r}
+zmod3 = lmer(finalexamzscores ~ Quantitative.Score + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + (1 | Instructor.code), data = mergedf)
+summary(zmod3)
+```
+both faculty engagements are significant but one is negative? i will graph this when we get to zmod7 for the quantitative bins
+
+```{r}
+zmod4 = lmer(finalexamzscores ~ Quantitative.Score + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.faculty:Quantitative.Score + Engagement.workshops:Quantitative.Score + Engagement.TLC.studygroups:Quantitative.Score + Engagement.TLC.tutoring:Quantitative.Score + (1 | Instructor.code), data = mergedf)
+summary(zmod4)
+```
+
+
+the negative value in the interaction between quant score and Engagement.TLC.studygroups2 leads me to believe that the more one goes to study groups, the less predictive their initial quant exam result will be of their final exam grade
+
+the next 5 graphs use our quant bins. as these are more suitable for graphing, we will create graphs of some of our results 
+
+
+```{r}
+zmod5 = lmer(finalexamzscores ~ combinedquartile + Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(zmod5)
+```
+
+similar results
+
+4th quartile interpretation. Being in the 4th quartile of quant exam results is associated with a 1.43 standard deviation decrease in final exam score holding engagement constant and accounting for difference in profs
+
+```{r}
+zmod6 = lmer(finalexamzscores ~ combinedquartile + Engagement.sum + combinedquartile:Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(zmod6)
+```
+```{r}
+r2(zmod6)
+```
+
+we plot these results, similar to how we did for model 6
+
+```{r}
+zpred6 <- ggpredict(zmod6, terms = c("Engagement.sum", "combinedquartile"))
+head(zpred6)
+```
+
+```{r}
+ggplot(zpred6, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Score",
+    y = "Predicted Final Exam Score Z-score",
+    color = "Quantitative\nAssessment Quartile",
+    fill = "Quantitative\nAssessment Quartile"
+  ) +
+  theme_minimal() + ggtitle("Students in the 4th Quantitative Assessment Quartile\nBenefitted the Most from Engaging with Academic Resources") + theme(text = element_text(size = 12)) + scale_fill_brewer(palette = "Spectral") + scale_color_brewer(palette = "Spectral") + scale_y_continuous(breaks = c(-1.5,-1,-0.5,0,0.5,1,1.5))
+```
+
+with max engagement, those in the 4th quartile can get right about to the mean final exam score
+
+
+```{r}
+zmod7 = lmer(finalexamzscores ~ combinedquartile + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + (1 | Instructor.code), data = mergedf)
+summary(zmod7)
+```
+
+now, we explore the relationship found in engaging in faculty
+
+```{r}
+zpred7 <- ggpredict(zmod7, terms = c("Engagement.faculty", "combinedquartile"))
+head(zpred7)
+```
+
+```{r}
+ggplot(zpred7, aes(x = x, y = predicted, color = group)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = group), linewidth = 1) +
+  labs(
+    x = "Engagement with Faculty",
+    y = "Predicted Final Exam Score Zscore",
+    color = "Quant Exam Quartile"
+  ) +
+  theme_minimal()
+```
+i now realize making graphs for models without interaction terms isnt the best idea... obviously all the lines are gonna be the same just with different intercepts. interesting how there is a decrease at 1. will explore in model 8
+
+```{r}
+zmod8 = lmer(finalexamzscores ~ combinedquartile + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.faculty:combinedquartile + Engagement.workshops:combinedquartile + Engagement.TLC.studygroups:combinedquartile + Engagement.TLC.tutoring:combinedquartile + (1 | Instructor.code), data = mergedf)
+summary(zmod8)
+```
+study groups are significant like in model 8 so this is how it should be
+
+now we graph relationships 
+
+worthy to note that being in the 4th quartile essentially drops ur final exam grade down 1 standard deviation.. which is a lot
+
+```{r}
+zpred8 <- ggpredict(zmod8, terms = c("Engagement.TLC.studygroups", "combinedquartile"))
+head(zpred8)
+```
+
+```{r}
+ggplot(zpred8, aes(x = x, y = predicted, color = group)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = group), linewidth = 1) +
+  labs(
+    x = "Engagement with Faculty",
+    y = "Predicted Final Exam Score Zscore",
+    color = "Quant Exam Quartile"
+  ) +
+  theme_minimal()
+```
+interesting... engaging with faculty a lot (2) is seen to increase final exam score across the board, but the 4th quartile doesnt get any better. in fact, it decreases in 1... idk how this could even happen
+
+However, for final exam score, we have found:
+engaging with faculty is most beneficial for those who scored high (1st) in the quant assessment
+engaging with study groups is most beneficial for those who scored low (4th) in the quant assessment
+
+1st quartile is the intercept so cant really comment on significance of the relationship... but the intercept is significant which is good
+
+i make a similar graph for dfw to see if this holds
+
+```{r}
+logpred8x <- ggpredict(logmod8, terms = c("Engagement.faculty", "combinedquartile"))
+head(logpred8)
+```
+
+```{r}
+ggplot(logpred8x, aes(x = x, y = predicted, color = group)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = group), linewidth = 1) +
+  labs(
+    x = "Engagement with Faculty",
+    y = "Predicted Probability of Student Being DFW",
+    color = "Quant Exam Quartile"
+  ) +
+  theme_minimal()
+```
+
+we do see a pretty good decrease in lots of faculty engagement (2) for 4th quartile. howrver i still have no idea why there is a large increase for 1. unforttunately all of these interaction terms are incredibly insignificant so graphing this is next to meaningless
+
+i compare my original graph to the zscore graph
+```{r}
+zpred6 <- ggpredict(zmod6, terms = c("Engagement.sum", "combinedquartile"))
+head(zpred6)
+```
+
+```{r}
+ggplot(zpred6, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Sum",
+    y = "Predicted Final Exam Score Zscore",
+    color = "Quant Exam Quartile",
+    fill = "Quant Exam Quartile"
+  ) +
+  theme_minimal() 
+```
+same graph, but we can really see that there really is a 1 standard deviation gap between 3rd quartile and 4th quartile when at engagement = 0
+
+As we have all of our models, we choose our best graphs to put on our slide show and make them look extra good
+
+```{r}
+ggplot(pred6, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Score",
+    y = "Predicted Final Exam Score",
+    color = "Quantitative\nAssessment Quartile",
+    fill = "Quantitative\nAssessment Quartile"
+  ) +
+  theme_minimal() + ggtitle("Students in the 4th Quantitative Assessment Quartile\nBenefitted the Most from Engaging with Academic Resources") + theme(text = element_text(size = 12)) + scale_fill_brewer(palette = "Spectral") + scale_color_brewer(palette = "Spectral")
+```
+```{r}
+ggplot(mergedf, aes(y = Instructor.code, x = ExamFinal.Score_raw)) + geom_boxplot() + theme_minimal() + xlab("Final Exam Score") + ylab("Instructor Code") +  scale_y_discrete(labels = c("Professor_Z" = "Professor Z", "Professor_Y" = "Professor Y", "Professor_W" = "Professor W", "Professor_V" = "Professor V", "Professor_M" = "Professor M", "Professor_K" = "Professor K", "Professor_J" = "Professor J", "Professor_H" = "Professor H", "Professor_G" = "Professor G")) + ggtitle("Final Exam Score for Each Professor") + theme(text = element_text(size = 12))
+```
+
+```{r}
+ggplot(mergedf, aes(x = as.factor(Engagement.sum), y = ExamFinal.Score_raw)) + geom_boxplot() + theme_minimal() + ylab("Final Exam Score") + xlab("Engagement Score") + ggtitle("Final Exam Score by Engagement Score") + theme(text = element_text(size = 12))
+```
+
+We change dfw to a factor so it can be treated as categorical
+```{r}
+mergedf$DFW.Counter = as.factor(mergedf$DFW.Counter)
+```
+
+
+```{r}
+ggplot(mergedf, aes(x = mergedf$DFW.Counter, y = mergedf$Engagement.sum)) + geom_boxplot() + theme_minimal()  + ggtitle("Engagement Score by Whether Students Were DFW or Not") + xlab("DFW?") + ylab("Engagement Score") + scale_x_discrete(labels = c("0" = "No", "1" = "Yes")) + theme(text = element_text(size = 12))
+```
+
+```{r}
+ggplot(mergedf, aes(x = mergedf$DFW.Counter, y = mergedf$Quantitative.Score)) + geom_boxplot() + theme_minimal() + ggtitle("Quantitative Exam Score by Whether\nStudents Were DFW or Not") + xlab("DFW?") + ylab("Quantitative Assessment Score") + scale_x_discrete(labels = c("0" = "No", "1" = "Yes")) + theme(text = element_text(size = 12))
+```
+
+```{r}
+plot_data <- mergedf %>%
+  group_by(Instructor.code) %>%
+  summarise(
+    proportion = sum(DFW.Counter == "1") / n()
+  )
+
+ggplot(plot_data, aes(y = Instructor.code, x = proportion)) +
+  geom_col(fill = "white", color = "black") + theme_minimal() + ggtitle("Proportion of DFW Students for Each Professor") + scale_y_discrete(labels = c("Professor_Z" = "Professor Z", "Professor_Y" = "Professor Y", "Professor_W" = "Professor W", "Professor_V" = "Professor V", "Professor_M" = "Professor M", "Professor_K" = "Professor K", "Professor_J" = "Professor J", "Professor_H" = "Professor H", "Professor_G" = "Professor G")) + ggtitle("Proportion of DFW Students for Each Professor") + ylab("Instructor Code") + xlab("Proportion of DFW Students") + scale_x_continuous(limits = c(0, 0.4), breaks = c(0.1,0.2,0.3,0.4)) + theme(text = element_text(size = 12)) 
+```
+```{r}
+logpred2 = ggpredict(logmod2, terms = c("Engagement.sum", "Quantitative.Score [10.5,8.5,6.5,3.5]"))
+head(logpred2)
+```
+
+```{r}
+ggplot(logpred2, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Score",
+    y = "Predicted Probability of Being DFW",
+    color = "Quantitative Assessment\nScore of a Student",
+    fill = "Quantitative Assessment\nScore of a Student"
+  ) +
+  theme_minimal() + scale_color_brewer(palette = "Spectral", direction = -1) + scale_fill_brewer(palette = "Spectral", direction = -1) + ggtitle("Engagement is Associated With a Decrease\nin Probability of Being DFW on Average") + theme(text = element_text(size = 12)) + scale_y_continuous(limits = c(0, 1), breaks = c(0.2,0.4,0.6,0.8, 1))
+```
+```{r}
+zpred8 <- ggpredict(zmod8, terms = c("Engagement.TLC.studygroups", "combinedquartile"))
+head(zpred8)
+```
+
+```{r}
+ggplot(zpred8, aes(x = x, y = predicted, color = group)) +
+  geom_point(size = 3) + geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.1,
+    linewidth = 0.5, alpha = 0.6
+  ) + 
+  geom_line(aes(group = group), linewidth = 1) +
+  labs(
+    x = "Engagement with TLC Study Groups",
+    y = "Predicted Final Exam Score Z-Score",
+    color = "Quantitative\nAssessment Quartile"
+  ) +
+  ggtitle("Students in the 4th Quartile Who Utilize TLC Study Groups\nOften See a Boost in Final Exam Grade on Average") + scale_color_brewer(palette = "Spectral") +  scale_x_discrete(breaks = c(0, 1, 2), labels = c("0" = "None", "1" = "Some", "2" = "Often")) + theme_minimal() + theme(text = element_text(size = 12))
+```
+
+```{r}
+zpred <- ggpredict(zmod2, terms = c("Engagement.sum", "Quantitative.Score [10.5,8.5,6.5,3.5]"))
+head(zpred)
+```
+
+```{r}
+ggplot(zpred, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Score",
+    y = "Predicted Final Exam Score Z-Score",
+    color = "Quantitative Assessment\nScore of a Student",
+    fill = "Quantitative Assessment\nScore of a Student"
+  ) +
+  theme_minimal() + scale_color_brewer(palette = "Spectral", direction = -1) + scale_fill_brewer(palette = "Spectral", direction = -1) + ggtitle("Engagement is Associated With an Increase\nin Final Exam Score on Average") + theme(text = element_text(size = 12)) + scale_y_continuous(limits = c(-2, 1))
+```
+
+
+we now make a short detour on modeling the difference between exam 1 and exam 2 scores. We graph the most useful models so we can get a full picture quickly
+```{r}
+mergedf$examdif = as.numeric(mergedf$Exam2.Score_raw - mergedf$Exam1.Score_raw)
+
+mergedf$examdif[(mergedf$Exam1.Score_raw == 0) | (mergedf$Exam2.Score_raw == 0)] = NA
+```
+
+
+```{r}
+diffmod = lmer(examdif ~ Quantitative.Score + Engagement.sum + Quantitative.Score:Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(diffmod)
+```
+
+```{r}
+r2(diffmod)
+```
+very low r^2. Predictive power seems very low. we see if we quantitative quartiles has results any better
+
+
+```{r}
+diffmod2 = lmer(examdif ~ combinedquartile + Engagement.sum + combinedquartile:Engagement.sum + (1 | Instructor.code), data = mergedf)
+summary(diffmod2)
+```
+```{r}
+r2(diffmod2)
+```
+only significant features are those that include the 4th quartile... we visualize this below
+
+
+```{r}
+diffpred <- ggpredict(diffmod2, terms = c("Engagement.sum", "combinedquartile"))
+head(diffpred)
+```
+
+```{r}
+ggplot(diffpred, aes(x = x, y = predicted, color = group)) +
+  geom_line(size = 1.2) +
+  geom_ribbon(aes(ymin = conf.low, ymax = conf.high, fill = group), alpha = 0.2, color = NA) +
+  labs(
+    x = "Engagement Score",
+    y = "Predicted Difference in\nExam 1 and Exam 2 Scores",
+    color = "Quantitative\nAssessment Quartile",
+    fill = "Quantitative\nAssessment Quartile"
+  ) +
+  theme_minimal() + ggtitle("Students in the 4th Quantitative Assessment Quartile Had\nthe Biggest Difference Between Exam 1 and Exam 2 Scores") + theme(text = element_text(size = 12)) + scale_color_brewer(palette = "Spectral") + scale_fill_brewer(palette = "Spectral") + scale_color_brewer(palette = "Spectral")
+```
+very interesting graph. however everything but the 4th quartile stuff is very insignificant and the r^2 is very low so it is hard to say if this is completely reflective of the population
+
+we now look at all of the engagement bins
+
+```{r}
+diffmod3 = lmer(examdif ~ combinedquartile + Engagement.faculty + Engagement.workshops + Engagement.TLC.studygroups + Engagement.TLC.tutoring + Engagement.faculty:combinedquartile + Engagement.workshops:combinedquartile + Engagement.TLC.studygroups:combinedquartile + Engagement.TLC.tutoring:combinedquartile + (1 | Instructor.code), data = mergedf)
+summary(diffmod3)
+```
+some interesting findings... only 2nd and 3rd quartile are significant for its interaction with workshops2? We see tutoring is significant for the 4th quartile so we graph that
+
+
+```{r}
+diffpred2 <- ggpredict(diffmod3, terms = c("Engagement.TLC.tutoring", "combinedquartile"))
+head(diffpred2)
+```
+
+```{r}
+ggplot(diffpred2, aes(x = x, y = predicted, color = group)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = group), linewidth = 1) +
+  labs(
+    x = "Engagement with TLC Tutoring",
+    y = "Predicted Difference in\nExam 1 and Exam 2 Scores",
+    color = "Quantitative\nAssessment Quartile"
+  ) +
+  theme_minimal()
+```
+
+
+```{r}
+ggplot(mergedf, aes(x = combinedquartile, y = examdif, fill = combinedquartile)) + geom_boxplot() + theme_minimal()  + ggtitle("Difference in Exam 1 and Exam 2 Scores\nBetween Quantitative Assessment Quartiles") + xlab("Quantitative Assessment Quartiles") + ylab("Difference in Exam 1 and Exam 2 Scores") + theme(legend.position = "none", text = element_text(size = 12)) + scale_fill_brewer(palette = "Spectral")
+```
+

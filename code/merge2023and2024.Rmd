@@ -1,0 +1,71 @@
+---
+title: "merge2023and2024"
+author: "Noah Thomas"
+date: "2026-09-12"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+load in required libraries
+```{r}
+library(dplyr)
+library(tidyverse)
+library(openxlsx)
+```
+
+we read in the data we received below for both years
+```{r}
+chem2023 = read.csv("2023ver2.csv", header = TRUE)
+chem2024 = read.csv("2024ver2.csv", header = TRUE)
+```
+
+Our objective in this file is to merge the 2023 and 2024 data that includes all info for both years for general use. I also perform some very general cleaning. 
+
+Before we merge, we have to do general cleaning of both dataframes, since they won't be combined if columns have different data types. we do this below
+```{r}
+#NAs are removed here and replaced with 0s. Since these features acted binary, this just makes analysis easier
+chem2024 = chem2024 %>%
+  mutate(across(c(StudyGroupsYN.Registered.Sep9, StudyGroupsYN.Waitlisted.Sep9, TutoringYN.Sep9, Workshop_1.Sun, Workshop_1.Mon, Workshop_3.Sun, Workshop_3.Mon), ~ ifelse(is.na(.), 0, 1)))
+
+chem2023 = chem2023 %>%
+  mutate(across(c(Workshop_3.Sun, Workshop_3.Mon, Workshop_2.Sun, Workshop_2.Mon), ~ ifelse(is.na(.), 0, 1)))
+#We make sure the features that are supposed to purely numeric are like so. This code turns any entries that werent numbers into NAs
+chem2024 = chem2024 %>%
+mutate(Exam2.Score_raw = as.numeric(Exam2.Score_raw),
+       Exam3.Score_raw = as.numeric(Exam3.Score_raw),
+       ExamFinal.Score_raw = as.numeric(ExamFinal.Score_raw),
+       Homework.Achieve = as.numeric(Homework.Achieve),
+       Exam2.Diff_to_instr.median = as.numeric(Exam2.Diff_to_instr.median),
+       Exam3.Diff_to_instr.median = as.numeric(Exam3.Diff_to_instr.median),
+       ExamFinal.Diff_to_instr.median = as.numeric(ExamFinal.Diff_to_instr.median),
+       Grade.Final.. = as.numeric(Grade.Final..))
+
+chem2023 = chem2023 %>%
+mutate(Exam2.Score_raw = as.numeric(Exam2.Score_raw),
+       Exam3.Score_raw = as.numeric(Exam3.Score_raw),
+       ExamFinal.Score_raw = as.numeric(ExamFinal.Score_raw),
+       Homework.Achieve = as.numeric(Homework.Achieve),
+       Exam2.Diff_to_instr.median = as.numeric(Exam2.Diff_to_instr.median),
+       Exam3.Diff_to_instr.median = as.numeric(Exam3.Diff_to_instr.median),
+       ExamFinal.Diff_to_instr.median = as.numeric(ExamFinal.Diff_to_instr.median),
+       Grade.Final.. = as.numeric(Grade.Final..))
+
+#We rename these columns so they are matching for the 2023 and 2024 datasets. this makes the merge possible
+chem2024 <- chem2024 %>% 
+  rename(Engagement.faculty = Engagement_faculty)
+```
+now we merge
+```{r}
+mergedf = bind_rows(chem2023, chem2024)
+```
+
+Since we have done general cleaning and merged both spreadsheets, we are done. We export this csv so it can be uploaded
+```{r}
+write.xlsx(mergedf, "2023merged2024X.xlsx")
+getwd()
+```
+
+

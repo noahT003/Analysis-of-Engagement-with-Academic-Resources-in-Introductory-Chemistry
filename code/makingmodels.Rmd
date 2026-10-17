@@ -1,0 +1,226 @@
+---
+title: "makingmodels"
+author: "Noah Thomas"
+date: "2026-09-13"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+load in required libraries
+```{r}
+library(dplyr)
+library(tidyverse)
+library(openxlsx)
+library(ggplot2)
+library(readxl)
+```
+
+we read in the data we received below for both years and the merged file
+```{r}
+chem2023 = read.csv("2023ver2.csv", header = TRUE)
+chem2024 = read.csv("2024ver2.csv", header = TRUE)
+mergedf = read_excel("2023merged2024.xlsx")
+```
+
+The purpose of this file is to analyze relationships between certain variables. This first question we are going to try to answer is "Does the final exam grade relate to engagement in the resources after controlling for initial quant skills assessment and faculty?". We start our investigation with making some initial graphs
+
+```{r}
+ggplot(mergedf[mergedf$ExamFinal.Score_raw != 0, ], aes(x = Quantitative.Score, y = ExamFinal.Score_raw)) + geom_point() + geom_smooth(method = "lm", se = FALSE, color = "blue")
+```
+
+Final exam score seems to increase as quant assessment score increases on average. There is variance but the general patterns stay the same
+
+```{r}
+ggplot(mergedf[mergedf$ExamFinal.Score_raw != 0, ], aes(x = Engagement.sum, y = ExamFinal.Score_raw)) + geom_point() + geom_smooth(method = "loess", se = FALSE, color = "blue")
+```
+maybe a scatterplot wasnt the best for this... but we can see that as engagement increases, there is a slight decrease in final exam grades on average until there is a slight increase for the very high engagements (7/8). Below we create a bar chart for means so we observe this data better.
+
+```{r}
+engagemeans = mergedf %>%
+  group_by(Engagement.sum) %>%
+  summarise(n = n(),
+            mean_score = mean(ExamFinal.Score_raw, na.rm = TRUE),
+            sd_score = sd(ExamFinal.Score_raw, na.rm = TRUE))
+
+ggplot(engagemeans, aes(y = mean_score, x = Engagement.sum)) + geom_col()
+```
+We can see the average final exam grades are about the same for each engagement level. However, there is a very slight increase for the top engagement (8), which can be interesting
+
+Below, we make a similar graph where we compare instructors
+```{r}
+facultymeans = mergedf %>%
+  group_by(Instructor.code) %>%
+  summarise(n = n(),
+            mean_score = mean(ExamFinal.Score_raw, na.rm = TRUE),
+            sd_score = sd(ExamFinal.Score_raw, na.rm = TRUE))
+
+ggplot(facultymeans, aes(x = mean_score, y = Instructor.code)) + geom_col()
+```
+Average final exam grades seem to differ much more between profs rather than engagement. For instance, prof j has the lowest average and prof z has the largest average. This could have an impact on the model we make
+
+Now we make box plot variants of the above 2 bar charts. we convert engagement sum to a factor below so we can treat it as a categorical variable
+```{r}
+mergedf$Engagement.sum = factor(mergedf$Engagement.sum)
+```
+
+
+```{r}
+ggplot(mergedf, aes(x = Engagement.sum, y = ExamFinal.Score_raw)) + geom_boxplot()
+```
+While we have already observed the mean, we can see the variances of some groups are higher than others. The group with the highest range looks to be the 0 group, which makes sense since it is likely comprised of those who do not need help and choose not to get it and those who do need help and choose not to get it
+
+```{r}
+ggplot(mergedf, aes(y = Instructor.code, x = ExamFinal.Score_raw)) + geom_boxplot()
+```
+ranges look to be the same between profs. only the means are substantially different. but ranges / variances look pretty similar
+
+now we make our first models. this first model is for our control variables
+
+```{r}
+mod1 = lm(ExamFinal.Score_raw ~ Quantitative.Score + Instructor.code, data = mergedf)
+
+summary(mod1)
+```
+we know quant assessment score would be related. The proj significance levels also make sense, for prof J  and prof Z have a noticeably lower / higher average score  than the other profs respectively
+
+Now we look at engagement by itself to predict final exam grade
+```{r}
+mod2 = lm(ExamFinal.Score_raw ~ Engagement.sum, data = mergedf)
+
+summary(mod2)
+```
+
+this is not a good model; engagement does not look like a good predictor by itself. this makes sense, since all levels of engagement looked to have similar average final exam grades.
+
+For our third model, we combine all 3 variables
+```{r}
+mod3 = lm(ExamFinal.Score_raw ~ Quantitative.Score + Instructor.code + Engagement.sum, data = mergedf)
+
+summary(mod3)
+```
+engagement does not seem to meaningfully add to model 1. Thus, its use as a variable to predict final grade may not be meaningful.
+
+We compare model 1 and model 3 below below
+```{r}
+anova(mod1, mod3)
+```
+This confirms that the engagement sum does not meaningfully add to model 1
+
+```{r}
+plot(mod1)
+```
+conditions look to be mostly fulfilled for model 1
+
+```{r}
+plot(mod3)
+```
+same for model 3 but it doesnt improve its model quality
+
+Thus, adding engagement did not significantly improve the model fit compared to the control only model. Engagement sum is not a significant feature
+
+This observation is surprising to me from a general view. Thus, I want to use what engagement sum was taken from: engagement workshops, studygroups, faculty, and tutoring. We will add these engagement variable to model 1 to see if it is significantly improved
+
+We first change each of the four features listed above to factors. this allows them to be viewed as categorical. We want this since there are only 3 levels for the variable (0,1, or 2)
+```{r}
+mergedf$Engagement.workshops = as.factor(mergedf$Engagement.workshops)
+mergedf$Engagement.faculty = as.factor(mergedf$Engagement.faculty)
+mergedf$Engagement.TLC.studygroups = as.factor(mergedf$Engagement.TLC.studygroups)
+mergedf$Engagement.TLC.tutoring = as.factor(mergedf$Engagement.TLC.tutoring)
+```
+
+```{r}
+mod4 = lm(ExamFinal.Score_raw ~ Quantitative.Score + Instructor.code + Engagement.workshops + Engagement.TLC.tutoring + Engagement.TLC.studygroups + Engagement.faculty, data = mergedf)
+
+summary(mod4)
+```
+while this model is better than model 3, id argue it still isnt the best model with how much variables were added. When separated, only certain levels of workshops and faculty are significant. Of the different kinds of engagement, faculty looks to be the most significant. While these features are not significant it is worthy to note that some have negative coefficients: so would that mean engagement did more harm than help? idk how this would be possible
+
+
+now that we have finished analysis with the final exam grade, I want to move on to another question: "Does getting a DFW or not relate to engagement in the resources after controlling for initial quant skills assessment and faculty?". This is related to the previous question, except we are assessing for DFWs. Thus, we will be using logistic regression. Firstly, we make some initial graphs to get an idea
+
+Before that, we change DFW to a factor so it is treated as categorical, where 1 is the student was DFW, and 0 is that they werent
+```{r}
+mergedf$DFW.Counter = as.factor(mergedf$DFW.Counter)
+```
+
+we now make our graphs below 
+
+```{r}
+ggplot(mergedf, aes(x = mergedf$DFW.Counter, y = mergedf$Engagement.sum)) + geom_boxplot()
+```
+yet again, engagement does not look to differ between the groups. those that DFWed have a lower range, but that is all for the most part
+
+```{r}
+ggplot(mergedf, aes(x = mergedf$DFW.Counter, y = mergedf$Quantitative.Score)) + geom_boxplot()
+```
+There looks to be more variation in quant assessment score. The IQR scores almost do not even overlap. Thus, quant assessment score will most likely be a significant variable
+
+```{r}
+ggplot(mergedf, aes(x = mergedf$DFW.Counter, fill = mergedf$Instructor.code)) + geom_bar(position = "dodge") + scale_fill_brewer(palette = "Set1")
+```
+The graph observes the counts of those that are DFW or not for each professor. however, it is difficult to see if a certain percent of students DFWed for each professor. Thus, we make a new graph below obtaining a ratio of students who DFWed for each prof
+
+```{r}
+plot_data <- mergedf %>%
+  group_by(Instructor.code) %>%
+  summarise(
+    proportion = sum(DFW.Counter == "1") / n()
+  )
+
+ggplot(plot_data, aes(y = Instructor.code, x = proportion)) +
+  geom_col()
+```
+This graph is muche easier to analyze. Generally, DFW rates for each prof differed. We can see prof W and prof G have the highest DFW rate of about 1/3. prof H and prof M have the lowest with about 0.12. prof z is also low, which makes sense since they had the highest final exam grade on average. Due to all the dfw rates differing, I think instructor code will be a significant variable
+
+Now that we have looked at our initial graphs, we move on to modeling. We first look at our control variables
+
+```{r}
+logmod = glm(DFW.Counter ~ Quantitative.Score +  Instructor.code, data = mergedf, family = binomial)
+
+summary(logmod)
+```
+This model looked to perform well. As we saw quant assessment score is definitely significant and some levels of instructor codes are as well. The ones that aren't are ones that tended to have a similar DFW ratio to other professors. This will be our baseline model
+
+Now we look at engagement by itself
+```{r}
+logmod2 = glm(DFW.Counter ~ Engagement.sum, data = mergedf, family = binomial)
+
+summary(logmod2)
+```
+engagement sum looks to be an insignificant variable by itself and has worse model fit. However we can see that more engagement leads to lower likelihood of DFW due to the negative coefficient which makes sense.
+
+Now we combine these models to see if engagement is useful with other variables
+
+```{r}
+logmod3 = glm(DFW.Counter ~ Quantitative.Score +  Instructor.code + Engagement.sum, data = mergedf, family = binomial)
+
+summary(logmod3)
+```
+
+Unlike the previous question, we see engagement sum is now significant with prof code and quant score. However, the AIC is not extremely different between the first model. we compare models below
+
+```{r}
+AIC(logmod, logmod3)
+```
+There is about a 2.5 AIC difference in models, making the difference in performance rather small
+
+```{r}
+anova(logmod, logmod3, test = "Chisq")
+```
+We observe logmod is nested inside logmod3, we compare results with a likelihood ratio test. We see the p-value is less than alpha = 0.05. Thus, we have substantial evidence that logmod3 fits the data better than logmod.
+
+As this is logistic regression, there are no additional conditions we check
+
+With the results we observed from the above likelihood ratio test, we conclude that adding engagement significantly improved the model fit to predict DFW compared to the control only model. Engagement sum is a significant feature. Also the higher the engagement the lower the DFW likelihood, which makes sense
+
+like the previous model, i wanted to see if breaking down engagement would be worthwhile
+```{r}
+logmod4 = glm(DFW.Counter ~ Quantitative.Score + Instructor.code + Engagement.workshops + Engagement.TLC.tutoring + Engagement.TLC.studygroups + Engagement.faculty, data = mergedf, family = binomial)
+
+summary(logmod4)
+```
+it has not; there is no reason to pick this model over logmod3. I'm surprised none of them were significant. However, we see some of them, namely tutoring, are positive, implying involvement in them raised the likelihood of being DFW. turoting also showed to decrease one's final exam grade in the previous question. This makes it a confusing relationship
+

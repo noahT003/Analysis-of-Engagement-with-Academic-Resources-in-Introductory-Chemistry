@@ -1,0 +1,628 @@
+---
+title: "initialexploring"
+author: "Noah Thomas"
+date: "2026-08-30"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+load in required libraries
+```{r}
+library(ggplot2)
+library(dplyr)
+library(ggalluvial)
+library(tidyverse)
+```
+
+we read in the data we received below
+```{r}
+chem205 = read.csv("chem205master2024.csv", header = TRUE)
+```
+
+After getting a glimpse of the data, I seek to clean it to remove NAs and make it easier to work with. i do that below
+```{r}
+#NAs are removed here and replaced with 0s. Since these features acted binary, this just makes analysis easier
+chem205 = chem205 %>%
+  mutate(across(c(StudyGroupsYN.Registered.Sep9, StudyGroupsYN.Waitlisted.Sep9, TutoringYN.Sep9, Workshop_1.Sun, Workshop_1.Mon, Workshop_3.Sun, Workshop_3.Mon), ~ ifelse(is.na(.), 0, 1)))
+
+#We make sure the features that are supposed to purely numeric are like so. This code turns any entries that werent numbers into NAs
+chem205 = chem205 %>%
+mutate(Exam2.Score_raw = as.numeric(Exam2.Score_raw),
+       Exam3.Score_raw = as.numeric(Exam3.Score_raw),
+       ExamFinal.Score_raw = as.numeric(ExamFinal.Score_raw),
+       Homework.Achieve = as.numeric(Homework.Achieve))
+
+#Unnecessary code here
+#chem205$Exam2.Score_raw[is.na(chem205$Exam2.Score_raw)] = 0
+#chem205$Exam3.Score_raw[is.na(chem205$Exam3.Score_raw)] = 0
+#chem205$ExamFinal.Score_raw[is.na(chem205$ExamFinal.Score_raw)] = 0
+#chem205$Homework.Achieve[is.na(chem205$Homework.Achieve)] = 0
+```
+I subset the data below for students who withdrew. will look into this in the file
+```{r}
+withdraw = chem205[chem205$Grade.FINAL == "W", ]
+```
+
+our first task is to get familiar with the data and the variables present, pick out the most important variables, and start to ask questions. We look at levels of variables below
+
+```{r}
+table(chem205$Student.Classification)
+```
+
+While mostly freshmen, the counts of juniors and sophomores shouldn't be wrote off. I compare their quantitative assessments below
+
+```{r}
+chem205 %>%
+  group_by(Student.Classification) %>%
+  summarise(n = n(),
+            mean_score = mean(Quantitative.Score),
+            median_score = median(Quantitative.Score),
+            sd_score = sd(Quantitative.Score))
+```
+as the medians are larger than the means, it is likely each group has some low outliers, especially juniors. Sophomores look to be much better off than the other groups.
+
+
+```{r}
+table(chem205$Instructor.code)
+```
+
+Prof W and Z look to have much less students than prof V and Z. Lets see the profs' average final grades to see if this affected students
+
+```{r}
+chem205 %>%
+  group_by(Instructor.code) %>%
+  summarise(n = n(),
+            mean_score = mean(Grade.Final..),
+            median_score = median(Grade.Final..),
+            sd_score = sd(Grade.Final..))
+```
+Class size may have played a minor role; prof Z had the smallest class and the highest average grade, and prof Y had one of the largest and had the lowest average grade. However, with such a small sample size, it is difficult to conclude anything about class size. The only thing I can conclude with reasonable confidence is that prof Z must have been a pretty good prof
+
+below we check average final grades for the class years
+```{r}
+chem205 %>%
+  group_by(Student.Classification) %>%
+  summarise(n = n(),
+            mean_score = mean(Grade.Final..),
+            median_score = median(Grade.Final..),
+            sd_score = sd(Grade.Final..))
+```
+similar relationship to quant assessment. sophomores look good (scores are about symmetric too) and juniors look the worst
+
+
+For exam 1, I want to see how engagement is correlated with scores. we look at tables below
+```{r}
+table(chem205$Engagement.Exam1.tot.max4.)
+```
+Not surprised that not many students engaged a ton. we will see how this affects exam scores
+
+```{r}
+chem205 %>%
+  group_by(Engagement.Exam1.tot.max4.) %>%
+  summarise(n = n(),
+            mean_score = mean(Exam1.Score_raw),
+            median_score = median(Exam1.Score_raw),
+            sd_score = sd(Exam1.Score_raw))
+```
+
+interesting relationship: those that got the most help did the best on average (3) but the step below (2) ended up doing the worst of all groups. what separates 2 and 3? I look at exam 2 results below to see if it holds
+
+no variable exists measuring the amount of engagement in the span of exam 1 to exam 2 and making it isnt exaclty possible due to lack of info except for workshop attendance. going forward, will measure with overall engagement sum. will analyze exam 1 scores with this in mind
+```{r}
+chem205 %>%
+  group_by(Engagmenet.sum) %>%
+  summarise(n = n(),
+            mean_score = mean(Exam1.Score_raw),
+            median_score = median(Exam1.Score_raw),
+            sd_score = sd(Exam1.Score_raw))
+```
+another interesting relationship in that the middle looks to be the lowest, and 0 and 8 are some of the highest with 0 having the lowest variance. we look at exam 2 and 3 below
+
+```{r}
+chem205 = chem205 %>%
+  mutate(Exam2.Score_raw = as.numeric(Exam2.Score_raw))
+```
+
+```{r}
+chem205 %>%
+  group_by(Engagmenet.sum) %>%
+  summarise(n = n(),
+            mean_score = mean(Exam2.Score_raw, na.rm = TRUE),
+            median_score = median(Exam2.Score_raw, na.rm = TRUE),
+            sd_score = sd(Exam2.Score_raw, na.rm = TRUE))
+```
+Scores were pretty varied across groups. however the variance for the 8 group is the lowest
+
+```{r}
+chem205 %>%
+  group_by(Engagmenet.sum) %>%
+  summarise(n = n(),
+            mean_score = mean(Exam3.Score_raw, na.rm = TRUE),
+            median_score = median(Exam3.Score_raw, na.rm = TRUE),
+            sd_score = sd(Exam3.Score_raw, na.rm = TRUE))
+```
+weirdly enough, those with 0 engagement seemed to have the most consistently high exam grades. High engagement is kind of inconsistent, but has consistently low variance on what grade they obtain now i want to see final grades
+
+```{r}
+chem205 %>%
+  group_by(Engagmenet.sum) %>%
+  summarise(n = n(),
+            mean_score = mean(Grade.Final.., na.rm = TRUE),
+            median_score = median(Grade.Final.., na.rm = TRUE),
+            sd_score = sd(Grade.Final.., na.rm = TRUE))
+```
+We have seen that the groups with the highest grades are those with 0 or 7/8 engagement; two opposite ends of the spectrum. However, i do think this is because those who already are confident with the content (0) are on par with those who used the most out of their resources (7/8). However those in the middle seem to have done the worst, which feels backwards
+
+to verify my above statement, i compare the quant assessment with engagement levels
+```{r}
+chem205 %>%
+  group_by(Engagmenet.sum) %>%
+  summarise(n = n(),
+            mean_score = mean(Quantitative.Score, na.rm = TRUE),
+            median_score = median(Quantitative.Score, na.rm = TRUE),
+            sd_score = sd(Quantitative.Score, na.rm = TRUE))
+```
+It seems I was about right; those with 0 engagement seem to already be confident in the content and were adequately prepared, whereas other groups were less so. Interestingly, those with 1 engagement scored high on the quant assessment but proved to be the group that performed the worst in the class
+
+Thus, for the question, "does engagement correlate with success in the course?", i would be unsure, since the only groups that had consistently high success were 0 and 7/8, with every other group being all over the place. However, this is at a very general lens; i did not analyze for specific practices (tlc, office hours, etc.) so they can have different relationships with grades
+
+now, i look at variables already explored and try to replicate some graphs. with this we look at quant assessment quartiles
+```{r}
+table(chem205$Quant_Quartile)
+```
+We know quant assessment scores are predictive of final course grade, so no need to analyse that here. 
+
+we replicate the alluvial plot created in the sheets below
+```{r}
+#reformat dataframe
+alluvial_df <- chem205 |>
+  count(Quant_Quartile, Grade.Final.Binned)
+#make graph
+ggplot(alluvial_df,
+       aes(axis1 = Quant_Quartile,
+           axis2 = Grade.Final.Binned,
+           y = n)) +
+  geom_alluvium(aes(fill = Quant_Quartile)) +
+  geom_stratum() +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Quantitative Assessment Score Quartile", "Final Course Grade")) +
+  theme_minimal() + theme(legend.position = "none")
+```
+alluvial plot looks to similar to one on the sheets, but this one does look pretty ugly... i would normally improve how this looks but I am just using to verify the data so it is unnecessary
+
+```{r}
+alluvial_df2 <- chem205 |>
+  count(Quant_bins_9, Grade.Final.Binned)
+
+ggplot(alluvial_df2,
+       aes(axis1 = Quant_bins_9,
+           axis2 = Grade.Final.Binned,
+           y = n)) +
+  geom_alluvium(aes(fill = Quant_bins_9)) +
+  geom_stratum() +
+  geom_text(stat = "stratum",
+            aes(label = after_stat(stratum))) +
+  scale_x_discrete(limits = c("Quantitative Assessment Score", "Final Course Grade")) +
+  theme_minimal() + theme(legend.position = "none")
+```
+We can see getting a 9 was a big signifier for success and passing, under.  9 was obv still okay, but these students were majority of those that got C's and below 
+
+we now look at other variables. I want to see if homework grades are linked to final grade achieved in the course
+
+
+```{r}
+chem205 %>%
+  group_by(Grade.Final.Binned) %>%
+  summarise(n = n(),
+            mean_score = mean(Homework.Achieve, na.rm = TRUE),
+            median_score = median(Homework.Achieve, na.rm = TRUE),
+            sd_score = sd(Homework.Achieve, na.rm = TRUE))
+```
+Yes? F's and W's have a significantly lower grade compared to all the others, which makes sense. All the other grades are only a few points apart but are all in the 90's. So none of the passing grades had a necessarily "bad" homework grade
+
+
+Now, I want to run multiple linear regression on multiple variables on overall engagement, the quantitative assessment, and then both. To do this, we need to analyze the levels in the engagement columns and then change the entries to be quantitative.
+
+```{r}
+table(chem205$split_engagement_workshop)
+table(chem205$split_engagement_faculty)
+table(chem205$split_engagement_tutoring)
+table(chem205$split_engagement_studygroups)
+```
+We observe these variables are binary. Thus, we change them to be either 0 or 1, with 1 denoting the positive outcome for engagement, and 0 the option which had little engagement
+
+```{r}
+chem205$split_engagement_workshop = ifelse(chem205$split_engagement_workshop == "1 or more", 1, 0)
+chem205$split_engagement_faculty = ifelse(chem205$split_engagement_faculty == "frequent", 1, 0)
+chem205$split_engagement_studygroups = ifelse(chem205$split_engagement_studygroups == "sustained", 1, 0)
+chem205$split_engagement_tutoring = ifelse(chem205$split_engagement_tutoring == "1 or more", 1, 0)
+```
+
+as the variables are now numeric, we can proceed with regression. We create 3 initial models: a model including the variables above, a model with only the quantitative assessment score, and both combined. we do the first model below
+
+```{r}
+model1 = lm(Grade.Final.. ~ split_engagement_workshop + split_engagement_faculty + split_engagement_studygroups + split_engagement_tutoring, data = chem205)
+summary(model1)
+```
+```{r}
+model2 = lm(Grade.Final.. ~ Quantitative.Score, data = chem205)
+summary(model2)
+```
+
+```{r}
+model3 = lm(Grade.Final.. ~ split_engagement_workshop + split_engagement_faculty + split_engagement_studygroups + split_engagement_tutoring + Quantitative.Score, data = chem205)
+summary(model3)
+```
+We see model 2 is statistically significant, which makes sense. However, model 1 did a lot worse than I thought. model 3 is also iffy. we see engagement with faculty became significant in model 3. we see what happens in a model with just the quant assessment score and faculty engagement below. We also apply a transformation on y to see if it better fits the data
+
+```{r}
+model4 = lm(Grade.Final..^2 ~ split_engagement_faculty +  Quantitative.Score, data = chem205)
+summary(model4)
+```
+This is the best trivial model I can make. While the R^2 isn't flattering (0.38 is moderate in strength) all variables are now significant. faculty dos also meaningfully add to the model, justifying its addition to the model. However, it is likely that other engagement variables may also end up being useful in future models.
+
+
+
+Next, I analyze the engagement options from a general view to see which ones were most utilized. we do this below
+```{r}
+sum(chem205$Engagement.TLC.studygroups)
+sum(chem205$Engagement.TLC.tutoring)
+sum(chem205$Engagement_faculty)
+sum(chem205$Engagment.workshops)
+```
+workshops look to be the least utilized. This is surprising to me, since workshops were the primary change of the next chem 205 class and it seemed to work. Will investigate when we have the chance 
+
+Below im gonna be checking various variables so i can get better ideas of the dataset
+
+```{r}
+sum(chem205$DFW.Counter) / 180
+```
+so about 21% of students withdrew or failed. this is a number that went up
+
+next i want to recreate graphs for exam scores by quant assessment scores. im also gonna add quant assessment quantiles as a color. the spreadsheet only had exam 1 but ill do the rest of the exams as well
+```{r}
+ggplot(chem205, aes(x = Quantitative.Score, y = Exam1.Score_raw, color = Quant_Quartile)) + geom_point(size = 2) + geom_smooth(aes(group = 1), method = "lm", se = FALSE, alpha = 0.5) + ggtitle("Exam 1 by Quant Assessment")
+```
+```{r}
+ggplot(chem205[!chem205$Exam2.Score_raw == 0, ], aes(x = Quantitative.Score, y = Exam2.Score_raw, color = Quant_Quartile)) + geom_point(size = 2) + geom_smooth(aes(group = 1), method = "lm", se = FALSE, alpha = 0.5) + ggtitle("Exam 2 by Quant Assessment")
+```
+```{r}
+ggplot(chem205[!chem205$Exam3.Score_raw == 0, ], aes(x = Quantitative.Score, y = Exam3.Score_raw, color = Quant_Quartile)) + geom_point(size = 2) + geom_smooth(aes(group = 1), method = "lm", se = FALSE, alpha = 0.5) + ggtitle("Exam 3 by Quant Assessment")
+```
+```{r}
+ggplot(chem205[!chem205$ExamFinal.Score_raw == 0, ], aes(x = Quantitative.Score, y = ExamFinal.Score_raw, color = Quant_Quartile)) + geom_point(size = 2) + geom_smooth(aes(group = 1), method = "lm", se = FALSE, alpha = 0.5) + ggtitle("Exam Final by Quant Assessment")
+```
+
+the quant assessment / quantiles did a pretty good job of grouping students in their exams. At a glance: exam 2 looked to be most varied in scores. the bottom quartile looks to be most varied of the groups. while many in the group seemed to have middling scores, some also did pretty well. groups seem to get less varied as they go up.
+
+i plot all graphs side by side below
+```{r}
+df_long = chem205 %>%
+  pivot_longer(
+    cols = c(Exam1.Score_raw, Exam2.Score_raw, Exam3.Score_raw, ExamFinal.Score_raw),
+    names_to = "exam",
+    values_to = "score"
+  )
+```
+
+```{r}
+
+ggplot(df_long, aes(x = Quantitative.Score, y = score, color = Quant_Quartile)) +
+  geom_point() +
+  geom_smooth(aes(group = 1), method = "lm", se = FALSE) +
+  facet_wrap(~ exam, ncol = 2) +
+  ylim(0, 100)
+```
+
+this exploration leads me to question the stats of those in the bottom quartile. ill look into it below
+```{r}
+#new dataframe created from those that were in the 4th quartile of quant assessment scores
+bottomquart = chem205[chem205$Quant_Quartile == "4th", ]
+```
+
+```{r}
+table(bottomquart$Grade.Final.Binned)
+22/47
+```
+about 46% got a final grade that is at least a C. while this isnt exactly reflected in just exams, those that are over the line are most likely part of this group
+
+```{r}
+table(bottomquart$Student.Classification)
+```
+
+surprising; most of the bottom quartile is freshmen. i thought they would be less represented in this group since the skills required in the assessment were reflective of what they did in high school and those above sophomore would become rusty, but this is not the case
+
+```{r}
+summary(bottomquart$Engagmenet.sum)
+summary(chem205$Engagmenet.sum)
+```
+
+surprising relationship - the bottom quartile has a higher average total engagement. I think this is due to those confident in the content not needing to utilze resources
+
+```{r}
+table(bottomquart$Instructor.code)
+```
+
+a ton of the bottom quart had prof y... interesting
+
+we look at professor scores for bottom quart below
+```{r}
+bottomquart %>%
+  group_by(Instructor.code) %>%
+  summarise(n = n(),
+            mean_score = mean(Grade.Final..),
+            median_score = median(Grade.Final..),
+            sd_score = sd(Grade.Final.., na.rm = TRUE))
+```
+despite having the most students in the bottom quartile, prof y had the highest average final grade. this is different from the overall comparison
+
+now i look at it without students that withdrew
+```{r}
+bottomquart[bottomquart$Grade.FINAL != "W", ] %>%
+  group_by(Instructor.code) %>%
+  summarise(n = n(),
+            mean_score = mean(Grade.Final..),
+            median_score = median(Grade.Final..),
+            sd_score = sd(Grade.Final.., na.rm = TRUE))
+```
+somewhat similar relationship for mean, but without withdrawn students averages are much closer.prof z has the highest median, similar to how dominant they were in the overall comparison. prof w is consistently pretty low
+
+to take a closer work at the quant assessment, i want to see what questions students seemed to get wrong most often. ill sum up the respective columns to see proportion correct for the class
+```{r}
+sum(chem205$X1..1.0.pts.) / 180
+sum(chem205$X2..1.0.pts.) / 180
+sum(chem205$X3..1.0.pts.) / 180
+sum(chem205$X4..1.0.pts.) / 180
+sum(chem205$X5..1.0.pts.) / 180
+sum(chem205$X6..1.0.pts.) / 180
+sum(chem205$X7..1.0.pts.) / 180
+sum(chem205$X8..1.0.pts.) / 180
+sum(chem205$X9..1.0.pts.) / 180
+sum(chem205$X10..1.0.pts.) / 180
+sum(chem205$X11..1.0.pts.) / 180
+sum(chem205$X12..1.0.pts.) / 180
+```
+the worst questions were 3, 8, 9, and 12. 3 is math simplification, 12 is science chem (volume) stuff, and 9 is going from mg to kg. Interesting that people performed the worst here, but tbf i also forgot the exact conversion
+
+```{r}
+sum(bottomquart$X1..1.0.pts.) / 47
+sum(bottomquart$X2..1.0.pts.) / 47
+sum(bottomquart$X3..1.0.pts.) / 47
+sum(bottomquart$X4..1.0.pts.) / 47
+sum(bottomquart$X5..1.0.pts.) / 47
+sum(bottomquart$X6..1.0.pts.) / 47
+sum(bottomquart$X7..1.0.pts.) / 47
+sum(bottomquart$X8..1.0.pts.) / 47
+sum(bottomquart$X9..1.0.pts.) / 47
+sum(bottomquart$X10..1.0.pts.) / 47
+sum(bottomquart$X11..1.0.pts.) / 47
+sum(bottomquart$X12..1.0.pts.) / 47
+```
+3, 9, and 12 still scored the lowest in the bottom quart, just with numbers being lower. other questions that ranked low were 5 and 10 which are pretty mathy
+
+now we look at the withdrew students dataset below
+```{r}
+summary(withdraw$assessment.total)
+summary(chem205$assessment.total)
+summary(bottomquart$assessment.total)
+```
+quant assessment results differ between withdrew students and the whole population. Not surprisingly withdrew students had worse quant assessment results. still bettee than bottom quart results by a good margin
+
+also upon looking at the spreadsheet homework grades look to be mostly NA except for 2 results. im unsure why two of them arent NA... they both dropped the class by the 3rd exam. this is a question to be asked
+
+```{r}
+summary(withdraw$Exam1.Score_raw)
+summary(chem205$Exam1.Score_raw)
+summary(withdraw$Exam2.Score_raw)
+summary(chem205$Exam2.Score_raw)
+```
+those that withdrew had some seriously bad exam scores... it is highly likely that these poor scores is what led students to drop the course. the above results have shown that withdrew students are in. a strange purgatory; they don't do the worst on the quant assessment and can only be observed aftee the first exam.
+
+we depart looking at withdrew students to look at how much all students engaged with faculty, i.e. going to office hours
+```{r}
+chem205 %>%
+  group_by(Instructor.code) %>%
+  summarise(n = n(),
+            mean_score = mean(Engagement_faculty),
+            sum_score = sum(Engagement_faculty),
+            sd_score = sd(Engagement_faculty, na.rm = TRUE))
+```
+more people engaged with prof V on average. in trying to investigate whether profs influenced student scores, it looks like mean engagement with them doesnt differ too much. However i am surprised that prof Z is on the bottom, since they had the best grades on averaege
+
+now we look at DFW rates for each professor
+```{r}
+chem205 %>%
+  group_by(Instructor.code) %>%
+  summarise(n = n(),
+            mean_score = mean(DFW.Counter),
+            sum_score = sum(DFW.Counter))
+```
+```{r}
+mean(chem205$DFW.Counter)
+sum(chem205$DFW.Counter)
+```
+DFW rates are pretty similar to rates for high grades. only 2 profs are above the average dfw rate, with prof W being the only one really above it (1/3 of their class was DFW) which is not great for them
+
+the data compares each professor's median exam score. we create a small table of this below. Note that mean(...) doesnt really do anything, since all values in the exam median columns are the same for each professor
+```{r}
+exambyinstructor = chem205 %>%
+  group_by(Instructor.code) %>%
+  summarise(n = n(),
+            exam1 = mean(Exam1.Median_instructor),
+            exam2 = mean(Exam2.Median_instructor, na.rm = TRUE),
+            exam3 = mean(Exam3.Median_instructor, na.rm = TRUE),
+            finalexam = mean(ExamFinal.Median_instructor, na.rm = TRUE))
+exambyinstructor
+```
+median exam grades also align with above for the most part. prof Y's exam grades had the lowest medians on average
+
+i graph this info below
+```{r}
+exam_long <- exambyinstructor %>%
+  pivot_longer(
+    cols = exam1:finalexam,
+    names_to = "exam",
+    values_to = "Value"
+  )
+
+ggplot(exam_long, aes(x = exam, y = Value, group = Instructor.code, color = Instructor.code)) +
+  geom_line() +
+  geom_point()
+```
+
+
+below i now look at stats divided by quant quartile. we know course performance is connected to the quartile, but i want to see other things
+
+
+```{r}
+exambyquart = chem205 %>%
+  group_by(Quant_Quartile) %>%
+  summarise(n = n(),
+            exam1 = mean(Exam1.Score_raw),
+            sd1_score = sd(Exam1.Score_raw, na.rm = TRUE),
+            exam2 = mean(Exam2.Score_raw, na.rm = TRUE),
+            sd2_score = sd(Exam2.Score_raw, na.rm = TRUE),
+            exam3 = mean(Exam3.Score_raw, na.rm = TRUE),
+            sd3_score = sd(Exam3.Score_raw, na.rm = TRUE),
+            finalexam = mean(ExamFinal.Score_raw, na.rm = TRUE),
+            sdfin_score = sd(ExamFinal.Score_raw, na.rm = TRUE))
+exambyquart
+```
+individual exam averages is self explanatory. very much divided between groups and every group other than the bottom quartile has similar variance
+
+we graph this below 
+```{r}
+exam_long2 <- exambyquart %>%
+  pivot_longer(
+    cols = c(exam1, exam2, exam3, finalexam),
+    names_to = "exam",
+    values_to = "Value"
+  )
+
+ggplot(exam_long2, aes(x = exam, y = Value, group = Quant_Quartile, color = Quant_Quartile)) +
+  geom_line() +
+  geom_point()
+```
+
+below we look at engagement between the assessment quartiles
+```{r}
+quantengag = chem205 %>%
+  group_by(Quant_Quartile) %>%
+  summarise(n = n(),
+            AverageEngagement = mean(Engagmenet.sum),
+            median_engag = median(Engagmenet.sum),
+            sd_score = sd(Engagmenet.sum, na.rm = TRUE))
+quantengag
+```
+surprisingly, those that were in the bottom quartile were the ones that engaged the most on average. thus, we wouldnt exactly be able to say they did poorly in the course because they didn't use the course's resources since they were the group that used them the most
+
+i make a graph of the above table below
+
+```{r}
+quantengag$highlight = ifelse(quantengag$Quant_Quartile == "4th", "Highlight", "no")
+
+ggplot(quantengag, aes(x = Quant_Quartile, y = AverageEngagement, fill = highlight)) + geom_col(color = "black") + ggtitle("Students Who Score Low on the Quantitative Assessment\n Tend to Engage with Resources More On Average") + xlab("Quantitative Assessment Score") + ylab("Average Engagement Score") + scale_x_discrete(limits = c("4th", "3rd", "2nd", "1st"), labels = c("1st" = "10.5 and above", "2nd" = "9.25 - 10.25", "3rd" = "6.75 - 8.75", "4th" = "6.5 and below")) + theme_bw() + theme(legend.position = "none") + scale_fill_manual(values = c("Highlight" = "#FF5F00",
+  "no" = "grey35")) 
+```
+
+```{r}
+ggplot(quantengag, aes(x = Quant_Quartile, y = AverageEngagement)) + geom_col()
+```
+
+
+i also now realize that that split engagement total dictates a rnage of the sum, not engagement scores at different points in time (oops). I compare the groups below
+
+```{r}
+chem205 %>%
+  group_by(split_engagement_total) %>%
+  summarise(n = n(),
+            mean_score = mean(Grade.Final..),
+            median_score = median(Grade.Final..),
+            sd_score = sd(Grade.Final.., na.rm = TRUE))
+```
+Average final grade between groups were about the same. will check exams below
+
+```{r}
+chem205 %>%
+  group_by(split_engagement_total) %>%
+  summarise(n = n(),
+            exam1 = mean(Exam1.Score_raw),
+            sd1_score = sd(Exam1.Score_raw, na.rm = TRUE),
+            exam2 = mean(Exam2.Score_raw, na.rm = TRUE),
+            sd2_score = sd(Exam2.Score_raw, na.rm = TRUE),
+            exam3 = mean(Exam3.Score_raw, na.rm = TRUE),
+            sd3_score = sd(Exam3.Score_raw, na.rm = TRUE),
+            finalexam = mean(ExamFinal.Score_raw, na.rm = TRUE),
+            sdfin_score = sd(ExamFinal.Score_raw, na.rm = TRUE))
+```
+surprisingly, the 0-3 group just barely beats out the 4-8 group in exam scores. however, the values are so close together that i wouldnt consider the difference meaningful, even if the variances for the 0-3 group are higher
+
+we check the quantitiative assessment score below
+```{r}
+chem205 %>%
+  group_by(split_engagement_total) %>%
+  summarise(n = n(),
+            mean_score = mean(Quantitative.Score),
+            median_score = median(Quantitative.Score),
+            sd_score = sd(Quantitative.Score, na.rm = TRUE))
+```
+not surprisingly, the group with less engagement has a slight edge over the group that has more engagement. i am inclined to believe that higher quantitative assessment score leads to less engagement. we have actually seen this: the 1st quartile seems to have the least amount of engagement on average
+
+I am curious in what class years make up each group. we observe this below
+```{r}
+chem205 %>%
+  count(Student.Classification, split_engagement_total)
+```
+most of those that engaged a lot with resources with freshmen. this makes sense, since they are more eager to utilize resources
+
+for the engagement groups, we also look at how many students were DFW
+```{r}
+chem205 %>%
+  count(DFW.Counter, split_engagement_total)
+```
+almost 1/4 of those that didnt engage much were DFW. i feel like this makes sense, since 0-3 is comprised of those who struggled but also those who succeeded the most
+
+related to this, i want to compare course grades / exam scores for those who were not DFW for both groups
+
+```{r}
+chem205[chem205$DFW.Counter == 0, ] %>%
+  group_by(split_engagement_total) %>%
+  summarise(n = n(),
+            exam1 = mean(Exam1.Score_raw),
+            sd1_score = sd(Exam1.Score_raw, na.rm = TRUE),
+            exam2 = mean(Exam2.Score_raw, na.rm = TRUE),
+            sd2_score = sd(Exam2.Score_raw, na.rm = TRUE),
+            exam3 = mean(Exam3.Score_raw, na.rm = TRUE),
+            sd3_score = sd(Exam3.Score_raw, na.rm = TRUE),
+            finalexam = mean(ExamFinal.Score_raw, na.rm = TRUE),
+            sdfin_score = sd(ExamFinal.Score_raw, na.rm = TRUE))
+```
+obv exam scores are higher, but there is a bigger difference between exam scores between groups which is not surprising and variances are about the same
+
+related to the above, no we look at the final course grades
+```{r}
+chem205[chem205$DFW.Counter == 0, ] %>%
+  group_by(split_engagement_total) %>%
+  summarise(n = n(),
+            mean_score = mean(Grade.Final..),
+            median_score = median(Grade.Final..),
+            sd_score = sd(Grade.Final.., na.rm = TRUE))
+```
+like above there is now a distinct difference for both groups in 0-3's favor (they got B - B+s on average)
+
+I want to investigate some info about workshops. we do this below
+```{r}
+sum(chem205$Workshop_1.Sun)
+sum(chem205$Workshop_1.Mon)
+sum(chem205$Workshop_2.Sun)
+sum(chem205$Workshop_2.Mon)
+sum(chem205$Workshop_3.Sun)
+sum(chem205$Workshop_3.Mon)
+```
+We can see most students went to workshops on sunday, with monday not being super popular
+
+
